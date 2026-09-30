@@ -2,15 +2,24 @@
   "source_project": "Nexus / Mesh",
   "source_commit": "8a24e488959e91c7a634338e9fe3c7cb384d1218",
   "extracted_on": "2026-09-30",
+  "initial_public_commit": "15fc916fef4be91dd16059466a3749aaa585f0e7",
   "files": [
     {
       "path": "scripts/mesh_ontology.py",
-      "sha256": "ea2f32535e2677e3996fdd0f57f15ea77824cff6b7d4068b603d52cb4cc6c8db"
+      "source_sha256": "ea2f32535e2677e3996fdd0f57f15ea77824cff6b7d4068b603d52cb4cc6c8db",
+      "sha256": "600e810435f3d7a753bcdd22e24e4e1a7a012929110371e43e244ed25498a39a"
     },
     {
       "path": "scripts/test_mesh_ontology.py",
-      "sha256": "bb7f22e2f03fdcd71247b42a48a64a3183fe264a5bd6671f236c9c45e6753177"
+      "source_sha256": "bb7f22e2f03fdcd71247b42a48a64a3183fe264a5bd6671f236c9c45e6753177",
+      "sha256": "64a78120905f8ddf005b211526058c5748599a4704f59a252e99954101ab89ea"
     }
   ],
-  "notes": "Selected implementation and acceptance tests are unchanged from the source commit. This standalone extract excludes the original Git history, datasets, databases, credentials, model weights and deployment configuration."
+  "public_changes": [
+    {
+      "date": "2026-09-30",
+      "summary": "Validate taxonomy before database writes, transactionally install configuration and guards, and close failed initializers. Enforce explicit UTC for query instants. Add three regression tests; the suite now contains 42 tests."
+    }
+  ],
+  "notes": "The initial public commit preserved the selected source files byte-for-byte. Current files include the public changes listed above; source_sha256 records the original extraction and sha256 records the current file. This standalone extract excludes the original Git history, datasets, databases, credentials, model weights and deployment configuration."
 }

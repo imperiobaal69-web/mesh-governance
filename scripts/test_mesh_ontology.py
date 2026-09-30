@@ -2,8 +2,10 @@
 import copy
 import hashlib
 import json
+import os
 import sqlite3
 import tempfile
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -259,6 +261,51 @@ class StoreTests(unittest.TestCase):
         concepts[0]["broader"] = [CONCEPTS[1]["uri"]]
         with self.assertRaises(ContractError):
             MeshStore(":memory:", concepts)
+
+    def test_invalid_taxonomy_does_not_pin_persistent_store(self):
+        for kind in ("cycle", "dangling"):
+            with self.subTest(kind=kind):
+                concepts = copy.deepcopy(CONCEPTS)
+                concepts[0]["broader"] = [CONCEPTS[1]["uri"] if kind == "cycle" else "missing-parent"]
+                path = Path(self.tmp.name) / f"invalid-{kind}.sqlite"
+                self.fails("invalid_input", lambda: MeshStore(path, concepts))
+                recovered = MeshStore(path, CONCEPTS)
+                try:
+                    self.assertEqual(recovered.seq(), 0)
+                    result = recovered.execute(ADMIN, command("importSourceVersion", "recovered", {
+                        "subject": "recovered", "text": "Synthetic recovery check.",
+                        "metadata": {}, "visibility": "public",
+                    }))
+                    self.assertEqual(result["event_id"], 1)
+                finally:
+                    recovered.close()
+
+    def test_query_rejects_invalid_or_non_utc_instants(self):
+        for value in ("2026-09-10", "2026-09-10T00:30:00", "2026-09-10T00:30:00+01:00", "", "not-a-time", 42, True):
+            with self.subTest(value=value):
+                self.fails("invalid_input", lambda: self.s.query(PUBLIC, "a", valid_at=value))
+
+    @unittest.skipUnless(hasattr(time, "tzset"), "Host timezone switching requires time.tzset")
+    def test_query_utc_instants_are_host_timezone_independent(self):
+        p = copy.deepcopy(self.payload)
+        p["valid_time"] = {"kind": "interval", "from": "2026-09-10T00:00:00Z", "to": "2026-09-10T01:00:00Z"}
+        self.s.execute(ADMIN, command("correctAssertion", "a", {"replacement": p, "reason": "Synthetic UTC interval."}, 1))
+        prior_tz = os.environ.get("TZ")
+        try:
+            for zone in ("UTC0", "EST5"):
+                os.environ["TZ"] = zone
+                time.tzset()
+                with self.subTest(zone=zone):
+                    for value in ("2026-09-10T00:30:00Z", "2026-09-10T00:30:00+00:00"):
+                        self.assertEqual(self.s.query(PUBLIC, "a", valid_at=value)["temporal_state"], "applicable")
+                    self.assertEqual(self.s.query(PUBLIC, "a", valid_at="2026-09-10T01:00:00Z")["temporal_state"], "outside_interval")
+                    self.fails("invalid_input", lambda: self.s.query(PUBLIC, "a", valid_at="2026-09-10T00:30:00"))
+        finally:
+            if prior_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = prior_tz
+            time.tzset()
 
     def test_unknown_time_never_becomes_ingestion_time(self):
         self.assertEqual(self.s.query(PUBLIC, "a", valid_at="2026-09-10T00:00:00Z")["temporal_state"], "temporal_unknown")

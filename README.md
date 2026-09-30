@@ -4,7 +4,7 @@
 
 A Python + SQLite evidence-governance library extracted from **Nexus / Mesh**. It preserves source versions and assertion history, records independent reviews, and controls which revisions can enter a published snapshot.
 
-**39 acceptance tests · Python standard library · Synthetic fixtures · No API keys**
+**42 acceptance tests · Python standard library · Synthetic fixtures · No API keys**
 
 ## Run the tests
 
@@ -16,7 +16,7 @@ cd mesh-governance
 python3 -B -m unittest discover -s scripts -p test_mesh_ontology.py -v
 ```
 
-Tests use temporary databases and synthetic source text, then clean up after themselves. A successful run reports `Ran 39 tests` and `OK`.
+Tests use temporary databases and synthetic source text, then clean up after themselves. On the Linux CI runners, a successful run reports `Ran 42 tests` and `OK`. The host-timezone regression requires `time.tzset` and is skipped on platforms without it.
 
 ## The problem
 
@@ -46,7 +46,16 @@ Source update → Dependent assertions become stale → Reassessment required
 
 - **[Implementation](scripts/mesh_ontology.py):** `MeshStore.execute` for transactions and idempotency; `validate` for evidence checks; the review, publication and rollback methods for governance.
 - **[Acceptance tests](scripts/test_mesh_ontology.py):** `StoreTests.setUp` and its helpers show a source moving through the command interface. Tests cover concurrent reviews, role injection, stale evidence, disputed decisions, temporal corrections and rollback.
-- **[Provenance](PROVENANCE.json):** source commit and SHA-256 hashes for both unchanged Python files.
+- **[Provenance](PROVENANCE.json):** source commit, original extraction hashes and current file hashes, with subsequent public changes recorded.
+
+## Public hardening
+
+The initial public extract contained 39 tests and preserved the selected source files unchanged. This edition fixes two issues found during review and adds three regression tests:
+
+- Invalid taxonomies are rejected before any database writes. Configuration and immutability guards are installed in one transaction, and failed initialization closes its connection. A file-backed test checks that a corrected taxonomy can initialize normally after rejected cyclic or dangling input.
+- Query instants now follow the same explicit-UTC contract as stored validity boundaries. Use an ISO8601 timestamp ending in `Z` or `+00:00` for `valid_at`; naive, non-UTC or malformed values raise `ContractError`. Tests check invalid inputs, equivalent UTC forms and the same query under different host timezones.
+
+These changes apply to this public sample; the original source commit remains recorded in the provenance file.
 
 ## Scope and limitations
 

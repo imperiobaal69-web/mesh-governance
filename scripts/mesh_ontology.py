@@ -100,24 +100,33 @@ CREATE INDEX IF NOT EXISTS revision_subject ON revisions(subject,created_seq);
 
 class MeshStore:
     def __init__(self, path, concepts):
-        self.db = sqlite3.connect(str(path), timeout=15, isolation_level=None)
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript(SCHEMA)
-        if str(path) != ":memory:":
-            os.chmod(path, 0o600)
         self.concepts = {x["uri"]: copy.deepcopy(x) for x in concepts}
         require(len(self.concepts) == len(concepts), "Duplicate concept identities")
         self.taxonomy_hash = digest(concepts)
-        # The source vocabulary is pinned per store, not silently replaceable.
-        self.db.execute("CREATE TABLE IF NOT EXISTS configuration(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
-        old = self.db.execute("SELECT value FROM configuration WHERE key='taxonomy_hash'").fetchone()
-        require(old is None or old[0] == self.taxonomy_hash, "Taxonomy changed; use an explicit migration/new store", "stale_dependency")
-        self.db.execute("INSERT OR IGNORE INTO configuration VALUES('taxonomy_hash',?)", (self.taxonomy_hash,))
+        # Validate before creating a database or pinning an unusable vocabulary.
         for uri in self.concepts:
-            self.ancestor_paths(uri)  # Reject cycles and dangling parents before accepting commands.
-        for table in ("events", "commands", "sources", "revisions", "reviews", "adjudications", "invalidations", "snapshots", "action_context"):
-            for verb in ("UPDATE", "DELETE"):
-                self.db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{verb} BEFORE {verb} ON {table} BEGIN SELECT RAISE(ABORT,'Immutable record'); END")
+            self.ancestor_paths(uri)
+        self.db = sqlite3.connect(str(path), timeout=15, isolation_level=None)
+        try:
+            self.db.row_factory = sqlite3.Row
+            self.db.executescript(SCHEMA)
+            if str(path) != ":memory:":
+                os.chmod(path, 0o600)
+            # Pin the vocabulary and install its guards together. The write lock
+            # also prevents simultaneous initializers from choosing different hashes.
+            self.db.execute("BEGIN IMMEDIATE")
+            self.db.execute("CREATE TABLE IF NOT EXISTS configuration(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
+            old = self.db.execute("SELECT value FROM configuration WHERE key='taxonomy_hash'").fetchone()
+            require(old is None or old[0] == self.taxonomy_hash, "Taxonomy changed; use an explicit migration/new store", "stale_dependency")
+            self.db.execute("INSERT OR IGNORE INTO configuration VALUES('taxonomy_hash',?)", (self.taxonomy_hash,))
+            for table in ("events", "commands", "sources", "revisions", "reviews", "adjudications", "invalidations", "snapshots", "action_context"):
+                for verb in ("UPDATE", "DELETE"):
+                    self.db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{verb} BEFORE {verb} ON {table} BEGIN SELECT RAISE(ABORT,'Immutable record'); END")
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            self.db.close()
+            raise
 
     def close(self):
         self.db.close()
@@ -197,19 +206,20 @@ class MeshStore:
         keys = {"kind", "at"} if kind == "instant" else {"kind", "from", "to"} if kind == "interval" else {"kind"}
         require(set(time) == keys, "Unexpected temporal fields; unknown is not infinity")
         for key in keys - {"kind"}:
-            require(nonempty(time[key]), "Time boundary required")
-            try:
-                parsed = datetime.fromisoformat(time[key].replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ContractError("invalid_input", "Use ISO8601 timestamps") from exc
-            require(parsed.utcoffset() is not None, "Time zone required")
-            require(parsed.utcoffset().total_seconds() == 0, "Use explicit UTC boundaries")
+            self.timestamp(time[key])
         if kind == "interval":
             require(self.timestamp(time["from"]) < self.timestamp(time["to"]), "Empty/reversed interval")
 
     @staticmethod
     def timestamp(value):
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        require(nonempty(value), "Time boundary required")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ContractError("invalid_input", "Use ISO8601 timestamps") from exc
+        require(parsed.utcoffset() is not None, "Time zone required")
+        require(parsed.utcoffset().total_seconds() == 0, "Use explicit UTC boundaries")
+        return parsed.timestamp()
 
     def validate(self, payload, actor, current=True):
         require(isinstance(payload, dict), "Assertion must be an object")
