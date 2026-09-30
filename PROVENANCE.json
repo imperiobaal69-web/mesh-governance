@@ -1,0 +1,16 @@
+{
+  "source_project": "Nexus / Mesh",
+  "source_commit": "8a24e488959e91c7a634338e9fe3c7cb384d1218",
+  "extracted_on": "2026-09-30",
+  "files": [
+    {
+      "path": "scripts/mesh_ontology.py",
+      "sha256": "ea2f32535e2677e3996fdd0f57f15ea77824cff6b7d4068b603d52cb4cc6c8db"
+    },
+    {
+      "path": "scripts/test_mesh_ontology.py",
+      "sha256": "bb7f22e2f03fdcd71247b42a48a64a3183fe264a5bd6671f236c9c45e6753177"
+    }
+  ],
+  "notes": "Selected implementation and acceptance tests are unchanged from the source commit. This standalone extract excludes the original Git history, datasets, databases, credentials, model weights and deployment configuration."
+}
